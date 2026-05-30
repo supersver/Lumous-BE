@@ -47,3 +47,4 @@ The server starts on `http://localhost:4000` by default.
 ## Endpoints
 
 - `GET /health` - health check
+- `GET /auth/me` - current user (requires `Authorization: Bearer <Firebase ID token>`)

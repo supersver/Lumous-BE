@@ -1,1 +1,5 @@
-export type { FirebaseAuthUser } from './auth';
+export type {
+  AuthenticatedRequest,
+  FirebaseAuthUser,
+  PublicUser,
+} from './auth';

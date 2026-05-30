@@ -25,6 +25,16 @@ const getExplicitFirebaseCredentials = (): ServiceAccount | undefined => {
   };
 };
 
+const resolveCredential = () => {
+  const explicitCredentials = getExplicitFirebaseCredentials();
+
+  if (explicitCredentials) {
+    return cert(explicitCredentials);
+  }
+
+  return applicationDefault();
+};
+
 export const getFirebaseApp = (): App => {
   const existingApp = getApps()[0];
 
@@ -36,10 +46,8 @@ export const getFirebaseApp = (): App => {
     return firebaseApp;
   }
 
-  const explicitCredentials = getExplicitFirebaseCredentials();
-
   firebaseApp = initializeApp({
-    credential: explicitCredentials ? cert(explicitCredentials) : applicationDefault(),
+    credential: resolveCredential(),
     ...(env.FIREBASE_PROJECT_ID ? { projectId: env.FIREBASE_PROJECT_ID } : {}),
   });
 
