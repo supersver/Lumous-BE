@@ -17,9 +17,20 @@ Production-ready Node.js backend scaffold for the ModelPilot AI chat application
 ```bash
 npm install
 cp .env.example .env
+# Fill DATABASE_URL (pooler :6543) and DIRECT_URL (db.<ref>.supabase.co :5432) from Supabase → Database → Connect
 npm run prisma:generate
+npm run prisma:migrate:dev
 npm run dev
 ```
+
+### Supabase + Prisma URLs
+
+| Variable | Use | Host |
+|----------|-----|------|
+| `DATABASE_URL` | App runtime (Prisma Client) | `*.pooler.supabase.com:6543` with `?pgbouncer=true` |
+| `DIRECT_URL` | Migrations (`prisma migrate`) | `db.<project-ref>.supabase.co:5432` with user `postgres` |
+
+Copy both strings from the Supabase dashboard. URL-encode special characters in the database password. Do not wrap the password in brackets.
 
 The server starts on `http://localhost:4000` by default.
 

@@ -7,3 +7,113 @@ datasource db {
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum MessageRole {
+  user
+  assistant
+  system
+}
+
+enum UsageStatus {
+  success
+  failed
+  partial
+}
+
+// ---------------------------------------------------------------------------
+// Models
+// ---------------------------------------------------------------------------
+
+model User {
+  id          String   @id @default(uuid()) @db.Uuid
+  firebaseUid String   @unique @map("firebase_uid")
+  email       String   @unique
+  name        String?
+  avatarUrl   String?  @map("avatar_url")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  apiKeys   ApiKey[]
+  chats     Chat[]
+  usageLogs UsageLog[]
+
+  @@map("users")
+}
+
+model ApiKey {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  provider     String
+  encryptedKey String   @map("encrypted_key")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isActive])
+  @@index([userId, provider])
+  @@map("api_keys")
+}
+
+model Chat {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  title     String
+  model     String
+  provider  String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  Message[]
+  usageLogs UsageLog[]
+
+  @@index([userId, updatedAt(sort: Desc)])
+  @@index([userId, provider])
+  @@map("chats")
+}
+
+model Message {
+  id               String      @id @default(uuid()) @db.Uuid
+  chatId           String      @map("chat_id") @db.Uuid
+  role             MessageRole
+  content          String      @db.Text
+  promptTokens     Int?        @map("prompt_tokens")
+  completionTokens Int?        @map("completion_tokens")
+  totalTokens      Int?        @map("total_tokens")
+  createdAt        DateTime    @default(now()) @map("created_at")
+
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([chatId, createdAt(sort: Asc)])
+  @@map("messages")
+}
+
+model UsageLog {
+  id               String      @id @default(uuid()) @db.Uuid
+  userId           String      @map("user_id") @db.Uuid
+  chatId           String      @map("chat_id") @db.Uuid
+  provider         String
+  model            String
+  promptTokens     Int         @map("prompt_tokens")
+  completionTokens Int         @map("completion_tokens")
+  totalTokens      Int         @map("total_tokens")
+  estimatedCost    Decimal     @map("estimated_cost") @db.Decimal(12, 6)
+  latencyMs        Int         @map("latency_ms")
+  status           UsageStatus
+  createdAt        DateTime    @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, status, createdAt(sort: Desc)])
+  @@index([userId, provider, createdAt(sort: Desc)])
+  @@index([chatId, createdAt(sort: Desc)])
+  @@map("usage_logs")
+}
