@@ -56,7 +56,7 @@ const requireEnv = (key: string, value: string | undefined): string => {
 export const env = {
   NODE_ENV: parseNodeEnv(process.env.NODE_ENV),
   PORT: parsePort(process.env.PORT),
-  CORS_ORIGINS: parseList(process.env.CORS_ORIGIN, ['http://localhost:3000']),
+  CORS_ORIGINS: parseList(process.env.CORS_ORIGIN, ['http://localhost:5173']),
   CORS_CREDENTIALS: parseBoolean(process.env.CORS_CREDENTIALS, true),
   REQUEST_BODY_LIMIT: process.env.REQUEST_BODY_LIMIT ?? '1mb',
   DATABASE_URL: requireEnv('DATABASE_URL', process.env.DATABASE_URL),

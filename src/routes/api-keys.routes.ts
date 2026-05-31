@@ -1,9 +1,9 @@
 import { Router } from 'express';
-import { authController } from '@controllers/auth.controller';
+import { apiKeysController } from '@controllers/api-keys.controller';
 import { requireAuth } from '@middlewares/auth.middleware';
 
 const router = Router();
 
-router.get('/me', requireAuth, authController.getMe);
+router.get('/', requireAuth, apiKeysController.list);
 
 export default router;

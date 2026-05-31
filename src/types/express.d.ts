@@ -1,10 +1,12 @@
-import type { FirebaseAuthUser } from './auth';
+import type { AppUser, VerifiedFirebaseUser } from './auth';
 
 declare global {
   namespace Express {
     interface Request {
-      /** Set by `authenticateFirebase` after a valid Bearer token is verified. */
-      user?: FirebaseAuthUser;
+      /** PostgreSQL application user set after Firebase token verification and user sync. */
+      user?: AppUser;
+      /** Verified Firebase identity for auth-only metadata; do not return this as the app user. */
+      firebaseAuth?: VerifiedFirebaseUser;
     }
   }
 }

@@ -1,38 +1,35 @@
-import { FirebaseAuthError } from 'firebase-admin/auth';
+import { FirebaseAuthError, type DecodedIdToken } from 'firebase-admin/auth';
 import { getFirebaseAuth } from '@lib/firebase';
+import { authService } from '@services/auth.service';
 import { AppError } from '@middlewares/error.middleware';
 import { asyncHandler } from '@middlewares/async-handler.middleware';
-import type { FirebaseAuthUser } from '@/types/auth';
+import type { VerifiedFirebaseUser } from '@/types/auth';
 
 const bearerPrefix = 'Bearer ';
 
 const getStringClaim = (value: unknown): string | undefined =>
   typeof value === 'string' && value.length > 0 ? value : undefined;
 
-const toFirebaseAuthUser = (decodedToken: {
-  uid: string;
-  email?: string;
-  email_verified?: boolean;
-  name?: string;
-  picture?: string;
-}): FirebaseAuthUser => {
+const toVerifiedFirebaseUser = (decodedToken: DecodedIdToken): VerifiedFirebaseUser => {
   const email = getStringClaim(decodedToken.email);
 
   if (!email) {
     throw new AppError(
-      'Firebase token is missing a verified email address.',
+      'Firebase token is missing an email address.',
       401,
       'AUTH_EMAIL_MISSING',
     );
   }
 
-  const user: FirebaseAuthUser = {
+  const user: VerifiedFirebaseUser = {
     uid: decodedToken.uid,
     email,
+    claims: decodedToken,
   };
 
-  const name = getStringClaim(decodedToken.name);
-  const picture = getStringClaim(decodedToken.picture);
+  const claims = decodedToken as unknown as Record<string, unknown>;
+  const name = getStringClaim(claims.name);
+  const picture = getStringClaim(claims.picture);
 
   if (name) {
     user.name = name;
@@ -47,6 +44,18 @@ const toFirebaseAuthUser = (decodedToken: {
   }
 
   return user;
+};
+
+const getFirebaseAuthErrorMessage = (code: string): string => {
+  if (code === 'auth/id-token-expired') {
+    return 'Firebase ID token has expired. Request a fresh ID token from the client.';
+  }
+
+  if (code === 'auth/argument-error') {
+    return 'Invalid Firebase ID token format. Send the raw Firebase ID token in Authorization: Bearer <token>.';
+  }
+
+  return 'Invalid Firebase ID token.';
 };
 
 export const authenticateFirebase = asyncHandler(async (req, _res, next) => {
@@ -64,7 +73,11 @@ export const authenticateFirebase = asyncHandler(async (req, _res, next) => {
 
   try {
     const decodedToken = await getFirebaseAuth().verifyIdToken(token);
-    req.user = toFirebaseAuthUser(decodedToken);
+    const firebaseUser = toVerifiedFirebaseUser(decodedToken);
+
+    req.firebaseAuth = firebaseUser;
+    req.user = await authService.getOrCreateUserFromFirebase(firebaseUser);
+
     next();
   } catch (error) {
     if (error instanceof AppError) {
@@ -72,9 +85,14 @@ export const authenticateFirebase = asyncHandler(async (req, _res, next) => {
     }
 
     if (error instanceof FirebaseAuthError) {
-      throw new AppError('Invalid or expired Firebase ID token.', 401, 'AUTH_TOKEN_INVALID');
+      throw new AppError(getFirebaseAuthErrorMessage(error.code), 401, 'AUTH_TOKEN_INVALID', {
+        firebaseCode: error.code,
+        firebaseMessage: error.message,
+      });
     }
 
     throw error;
   }
 });
+
+export const requireAuth = authenticateFirebase;

@@ -1,5 +1,6 @@
 export type {
+  AppUser,
   AuthenticatedRequest,
-  FirebaseAuthUser,
   PublicUser,
+  VerifiedFirebaseUser,
 } from './auth';
