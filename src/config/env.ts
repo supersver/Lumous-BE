@@ -53,6 +53,16 @@ const requireEnv = (key: string, value: string | undefined): string => {
   return value.trim();
 };
 
+const requireSecret = (key: string, value: string | undefined): string => {
+  const secret = requireEnv(key, value);
+
+  if (secret.length < 32) {
+    throw new Error(`${key} must be at least 32 characters long.`);
+  }
+
+  return secret;
+};
+
 export const env = {
   NODE_ENV: parseNodeEnv(process.env.NODE_ENV),
   PORT: parsePort(process.env.PORT),
@@ -61,6 +71,10 @@ export const env = {
   REQUEST_BODY_LIMIT: process.env.REQUEST_BODY_LIMIT ?? '1mb',
   DATABASE_URL: requireEnv('DATABASE_URL', process.env.DATABASE_URL),
   DIRECT_URL: requireEnv('DIRECT_URL', process.env.DIRECT_URL),
+  API_KEY_ENCRYPTION_SECRET: requireSecret(
+    'API_KEY_ENCRYPTION_SECRET',
+    process.env.API_KEY_ENCRYPTION_SECRET,
+  ),
   FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID,
   FIREBASE_CLIENT_EMAIL: process.env.FIREBASE_CLIENT_EMAIL,
   FIREBASE_PRIVATE_KEY: process.env.FIREBASE_PRIVATE_KEY,

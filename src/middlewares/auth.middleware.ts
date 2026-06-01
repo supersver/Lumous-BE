@@ -14,11 +14,7 @@ const toVerifiedFirebaseUser = (decodedToken: DecodedIdToken): VerifiedFirebaseU
   const email = getStringClaim(decodedToken.email);
 
   if (!email) {
-    throw new AppError(
-      'Firebase token is missing an email address.',
-      401,
-      'AUTH_EMAIL_MISSING',
-    );
+    throw new AppError('Firebase token is missing an email address.', 401, 'AUTH_EMAIL_MISSING');
   }
 
   const user: VerifiedFirebaseUser = {

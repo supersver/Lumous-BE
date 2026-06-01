@@ -26,10 +26,10 @@ npm run dev
 
 ### Supabase + Prisma URLs
 
-| Variable | Use | Host |
-| --- | --- | --- |
-| `DATABASE_URL` | App runtime (Prisma Client) | `*.pooler.supabase.com:6543` with `?pgbouncer=true` |
-| `DIRECT_URL` | Migrations (`prisma migrate`) | `db.<project-ref>.supabase.co:5432` with user `postgres` |
+| Variable       | Use                           | Host                                                     |
+| -------------- | ----------------------------- | -------------------------------------------------------- |
+| `DATABASE_URL` | App runtime (Prisma Client)   | `*.pooler.supabase.com:6543` with `?pgbouncer=true`      |
+| `DIRECT_URL`   | Migrations (`prisma migrate`) | `db.<project-ref>.supabase.co:5432` with user `postgres` |
 
 Copy both strings from the Supabase dashboard. URL-encode special characters in the database password. Do not wrap the password in brackets.
 
@@ -51,7 +51,9 @@ The server starts on `http://localhost:4000` by default.
 - `GET /auth/me` - current PostgreSQL user, synced from a verified Firebase ID token
 - `GET /chats` - protected route example using `req.user`
 - `GET /usage` - protected route example using `req.user`
-- `GET /api-keys` - protected route example using `req.user`
+- `POST /api-keys` - verify, encrypt, and store an OpenRouter API key
+- `GET /api-keys` - list saved provider keys with masked values
+- `DELETE /api-keys/:id` - delete a saved API key owned by the authenticated user
 
 ## Authentication Flow
 
@@ -63,3 +65,74 @@ Firebase is the only authentication provider. The backend does not issue custom 
 4. Backend verifies the token with Firebase Admin SDK.
 5. Backend finds or creates the PostgreSQL `users` row by `firebaseUid`.
 6. Backend attaches the PostgreSQL application user to `req.user`.
+
+## API Key Management
+
+Set `API_KEY_ENCRYPTION_SECRET` in `.env` before starting the server. Use a stable random secret with at least 32 characters; changing it later prevents decrypting previously saved keys.
+
+All API key routes require the Firebase ID token header:
+
+```http
+Authorization: Bearer <Firebase ID token>
+```
+
+### Create API Key
+
+Request:
+
+```bash
+curl -X POST http://localhost:4000/api-keys \
+  -H "Authorization: Bearer <Firebase ID token>" \
+  -H "Content-Type: application/json" \
+  -d '{"provider":"openrouter","apiKey":"sk-or-v1-your-openrouter-key"}'
+```
+
+Response:
+
+```json
+{
+  "apiKey": {
+    "id": "9c67b76f-4f4a-4fd4-9f80-f25cf3b176d8",
+    "provider": "openrouter",
+    "maskedKey": "sk-or-v1-****abcd",
+    "createdAt": "2026-06-01T10:00:00.000Z",
+    "updatedAt": "2026-06-01T10:00:00.000Z"
+  }
+}
+```
+
+### List API Keys
+
+Request:
+
+```bash
+curl http://localhost:4000/api-keys \
+  -H "Authorization: Bearer <Firebase ID token>"
+```
+
+Response:
+
+```json
+{
+  "apiKeys": [
+    {
+      "id": "9c67b76f-4f4a-4fd4-9f80-f25cf3b176d8",
+      "provider": "openrouter",
+      "maskedKey": "sk-or-v1-****abcd",
+      "createdAt": "2026-06-01T10:00:00.000Z",
+      "updatedAt": "2026-06-01T10:00:00.000Z"
+    }
+  ]
+}
+```
+
+### Delete API Key
+
+Request:
+
+```bash
+curl -X DELETE http://localhost:4000/api-keys/9c67b76f-4f4a-4fd4-9f80-f25cf3b176d8 \
+  -H "Authorization: Bearer <Firebase ID token>"
+```
+
+Response: `204 No Content`
