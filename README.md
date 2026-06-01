@@ -54,6 +54,7 @@ The server starts on `http://localhost:4000` by default.
 - `POST /api-keys` - verify, encrypt, and store an OpenRouter API key
 - `GET /api-keys` - list saved provider keys with masked values
 - `DELETE /api-keys/:id` - delete a saved API key owned by the authenticated user
+- `GET /models` - list OpenRouter models using the authenticated user's saved API key
 
 ## Authentication Flow
 
@@ -136,3 +137,30 @@ curl -X DELETE http://localhost:4000/api-keys/9c67b76f-4f4a-4fd4-9f80-f25cf3b176
 ```
 
 Response: `204 No Content`
+
+## OpenRouter Models
+
+`GET /models` requires an active saved OpenRouter API key for the authenticated user. The backend decrypts the saved key, calls OpenRouter, simplifies the model response, and caches results in memory for 10 minutes.
+
+Request:
+
+```bash
+curl http://localhost:4000/models \
+  -H "Authorization: Bearer <Firebase ID token>"
+```
+
+Response:
+
+```json
+[
+  {
+    "id": "openai/gpt-4o",
+    "name": "GPT-4o",
+    "contextLength": 128000,
+    "pricing": {
+      "prompt": "0.0000025",
+      "completion": "0.00001"
+    }
+  }
+]
+```
