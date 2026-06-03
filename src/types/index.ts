@@ -1,5 +1,13 @@
 export type { AppUser, AuthenticatedRequest, PublicUser, VerifiedFirebaseUser } from './auth';
 export type {
+  ChatDetailMessageDto,
+  ChatDetailsDto,
+  ChatResponseDto,
+  ChatSummaryDto,
+  CreateChatDto,
+  ListChatsQueryDto,
+} from './chats.dto';
+export type {
   ChatCompletionResponseDto,
   ChatMessageDto,
   CreateChatMessageDto,

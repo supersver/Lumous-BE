@@ -118,13 +118,22 @@ export const messagesService = {
       throw new AppError('Chat not found.', 404, 'CHAT_NOT_FOUND');
     }
 
-    await prisma.message.create({
-      data: {
-        chatId: input.chatId,
-        role: MessageRole.user,
-        content: input.dto.content,
-      },
-    });
+    await prisma.$transaction([
+      prisma.message.create({
+        data: {
+          chatId: input.chatId,
+          role: MessageRole.user,
+          content: input.dto.content,
+        },
+      }),
+      prisma.chat.update({
+        where: { id: input.chatId },
+        data: {
+          model: input.dto.model,
+          provider: openRouterProvider,
+        },
+      }),
+    ]);
 
     const history = await prisma.message.findMany({
       where: { chatId: input.chatId },
