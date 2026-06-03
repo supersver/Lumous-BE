@@ -113,6 +113,18 @@ const toStoredApiKeyResponseDto = (apiKey: ApiKey): ApiKeyResponseDto => {
   }
 };
 
+const decryptStoredApiKey = (encryptedApiKey: string): string => {
+  try {
+    return decryptSecret(encryptedApiKey);
+  } catch {
+    throw new AppError(
+      'Stored OpenRouter API key could not be decrypted.',
+      500,
+      'API_KEY_DECRYPTION_FAILED',
+    );
+  }
+};
+
 export const apiKeyService = {
   async createForUser(userId: string, dto: CreateApiKeyDto): Promise<ApiKeyResponseDto> {
     await verifyProviderApiKey(dto.provider, dto.apiKey);
@@ -148,5 +160,26 @@ export const apiKeyService = {
     if (result.count === 0) {
       throw new AppError('API key not found.', 404, 'API_KEY_NOT_FOUND');
     }
+  },
+
+  async getActiveOpenRouterApiKeyForUser(userId: string): Promise<string> {
+    const apiKey = await prisma.apiKey.findFirst({
+      where: {
+        userId,
+        provider: 'openrouter',
+        isActive: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!apiKey) {
+      throw new AppError(
+        'No active OpenRouter API key found for this user.',
+        404,
+        'OPENROUTER_API_KEY_MISSING',
+      );
+    }
+
+    return decryptStoredApiKey(apiKey.encryptedKey);
   },
 };

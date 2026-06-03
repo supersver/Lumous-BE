@@ -1,13 +1,11 @@
 import { createHash } from 'node:crypto';
 import axios, { AxiosError } from 'axios';
-import { decryptSecret } from '@lib/encryption';
 import { MemoryCache } from '@lib/memory-cache';
-import { prisma } from '@lib/prisma';
 import { AppError } from '@middlewares/error.middleware';
+import { apiKeyService } from '@services/api-key.service';
 import type { ModelDto } from '@/types/model.dto';
 
 const modelCacheTtlMs = 10 * 60 * 1000;
-const openRouterProvider = 'openrouter';
 const modelsCache = new MemoryCache<ModelDto[]>(modelCacheTtlMs);
 
 const openRouterClient = axios.create({
@@ -68,39 +66,6 @@ const getProviderMessage = (data: unknown): string | undefined => {
 
 const getCacheKey = (apiKey: string): string =>
   `openrouter-models:${createHash('sha256').update(apiKey, 'utf8').digest('hex')}`;
-
-const decryptStoredApiKey = (encryptedApiKey: string): string => {
-  try {
-    return decryptSecret(encryptedApiKey);
-  } catch {
-    throw new AppError(
-      'Stored OpenRouter API key could not be decrypted.',
-      500,
-      'API_KEY_DECRYPTION_FAILED',
-    );
-  }
-};
-
-const getActiveOpenRouterApiKey = async (userId: string): Promise<string> => {
-  const apiKey = await prisma.apiKey.findFirst({
-    where: {
-      userId,
-      provider: openRouterProvider,
-      isActive: true,
-    },
-    orderBy: { createdAt: 'desc' },
-  });
-
-  if (!apiKey) {
-    throw new AppError(
-      'No active OpenRouter API key found for this user.',
-      404,
-      'OPENROUTER_API_KEY_MISSING',
-    );
-  }
-
-  return decryptStoredApiKey(apiKey.encryptedKey);
-};
 
 const parseOpenRouterModels = (data: unknown): ModelDto[] => {
   if (!isRecord(data) || !Array.isArray(data.data)) {
@@ -178,7 +143,7 @@ const fetchModels = async (apiKey: string): Promise<ModelDto[]> => {
 
 export const openRouterService = {
   async listModelsForUser(userId: string): Promise<ModelDto[]> {
-    const apiKey = await getActiveOpenRouterApiKey(userId);
+    const apiKey = await apiKeyService.getActiveOpenRouterApiKeyForUser(userId);
     const cacheKey = getCacheKey(apiKey);
     const cachedModels = modelsCache.get(cacheKey);
 

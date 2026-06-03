@@ -55,6 +55,7 @@ The server starts on `http://localhost:4000` by default.
 - `GET /api-keys` - list saved provider keys with masked values
 - `DELETE /api-keys/:id` - delete a saved API key owned by the authenticated user
 - `GET /models` - list OpenRouter models using the authenticated user's saved API key
+- `POST /chats/:chatId/messages` - send a user message and store the OpenRouter assistant response
 
 ## Authentication Flow
 
@@ -163,4 +164,41 @@ Response:
     }
   }
 ]
+```
+
+## Chat Completions
+
+`POST /chats/:chatId/messages` requires the chat to belong to the authenticated user and requires an active saved OpenRouter API key. The backend stores the user message, loads conversation history, calls OpenRouter Chat Completions, stores the assistant response, and writes a usage log.
+
+Request:
+
+```bash
+curl -X POST http://localhost:4000/chats/84d5a5d9-0f9e-46fc-9937-18f2b0fe0a24/messages \
+  -H "Authorization: Bearer <Firebase ID token>" \
+  -H "Content-Type: application/json" \
+  -d '{"content":"Explain React Server Components","model":"openai/gpt-4o"}'
+```
+
+Response:
+
+```json
+{
+  "message": {
+    "id": "7e1fd14a-0100-45f2-a59c-90fd938cf102",
+    "chatId": "84d5a5d9-0f9e-46fc-9937-18f2b0fe0a24",
+    "role": "assistant",
+    "content": "React Server Components let React render parts of the tree on the server...",
+    "promptTokens": 128,
+    "completionTokens": 96,
+    "totalTokens": 224,
+    "createdAt": "2026-06-03T10:00:00.000Z"
+  },
+  "usage": {
+    "promptTokens": 128,
+    "completionTokens": 96,
+    "totalTokens": 224,
+    "estimatedCost": "0.00042",
+    "latencyMs": 1432
+  }
+}
 ```
