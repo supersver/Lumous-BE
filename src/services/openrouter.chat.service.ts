@@ -141,7 +141,7 @@ const handleOpenRouterChatError = (error: unknown): never => {
     const providerMessage = getProviderMessage(error.response?.data);
 
     if (providerStatus === 401 || providerStatus === 403) {
-      throw new AppError('Saved OpenRouter API key is invalid.', 401, 'OPENROUTER_API_KEY_INVALID');
+      throw new AppError('Saved OpenRouter API key is invalid.', 400, 'OPENROUTER_API_KEY_INVALID');
     }
 
     if (providerStatus === 402) {
