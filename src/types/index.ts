@@ -21,3 +21,11 @@ export type {
   OpenRouterChatRole,
   OpenRouterChatUsageDto,
 } from './openrouter-chat.dto';
+export type {
+  StreamChatCompleteEventDto,
+  StreamChatErrorEventDto,
+  StreamChatMessageCallbacks,
+  StreamChatSseEvents,
+  StreamChatStartEventDto,
+  StreamChatTokenEventDto,
+} from './streaming.dto';
