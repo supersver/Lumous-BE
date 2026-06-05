@@ -104,7 +104,7 @@ const getProviderMessage = (data: unknown): string | undefined => {
 const readOpenRouterErrorBody = async (response: Response): Promise<OpenRouterErrorBody | null> => {
   try {
     const body: unknown = await response.json();
-    return isRecord(body) ? (body as OpenRouterErrorBody) : null;
+    return isRecord(body) ? body : null;
   } catch {
     return null;
   }
@@ -181,7 +181,7 @@ const parseStreamChunk = (rawData: string): OpenRouterStreamChunk | null => {
 
   try {
     const parsed: unknown = JSON.parse(rawData);
-    return isRecord(parsed) ? (parsed as OpenRouterStreamChunk) : null;
+    return isRecord(parsed) ? parsed : null;
   } catch {
     throw new AppError(
       'OpenRouter returned an invalid streaming chunk.',
@@ -343,7 +343,7 @@ export const openRouterStreamingService = {
           stream: true,
           user: dto.userId,
         }),
-        signal,
+        signal: signal ?? null,
       });
     } catch (error) {
       if (signal?.aborted) {

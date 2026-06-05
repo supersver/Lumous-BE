@@ -74,6 +74,7 @@ model Chat {
   usageLogs UsageLog[]
 
   @@index([userId, updatedAt(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
   @@index([userId, provider])
   @@map("chats")
 }
@@ -114,6 +115,8 @@ model UsageLog {
   @@index([userId, createdAt(sort: Desc)])
   @@index([userId, status, createdAt(sort: Desc)])
   @@index([userId, provider, createdAt(sort: Desc)])
+  @@index([userId, model, createdAt(sort: Desc)])
+  @@index([userId, chatId, createdAt(sort: Desc)])
   @@index([chatId, createdAt(sort: Desc)])
   @@map("usage_logs")
 }
