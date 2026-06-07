@@ -1,6 +1,6 @@
-# ModelPilot-BE
+# Lumous-BE
 
-Production-ready Node.js backend scaffold for the ModelPilot AI chat application.
+Production-ready Node.js backend scaffold for the Lumous AI chat application.
 
 ## Stack
 

@@ -7,7 +7,7 @@ const app = createApp();
 const server = createServer(app);
 
 server.listen(env.PORT, () => {
-  console.info(`ModelPilot-BE listening on port ${env.PORT} in ${env.NODE_ENV} mode.`);
+  console.info(`Lumous-BE listening on port ${env.PORT} in ${env.NODE_ENV} mode.`);
 });
 
 const shutdown = (signal: string): void => {

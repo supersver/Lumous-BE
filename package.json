@@ -1,7 +1,7 @@
 {
-  "name": "modelpilot-be",
+  "name": "lumous-be",
   "version": "1.0.0",
-  "description": "Node.js backend for the ModelPilot AI chat application.",
+  "description": "Node.js backend for the Lumous AI chat application.",
   "main": "dist/server.js",
   "private": true,
   "license": "UNLICENSED",
