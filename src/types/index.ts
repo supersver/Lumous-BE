@@ -21,7 +21,7 @@ export type {
   CreateChatMessageDto,
   TokenUsageDto,
 } from './message.dto';
-export type { ModelDto, ModelPricingDto } from './model.dto';
+export type { ModelDto } from './model.dto';
 export type {
   CreateOpenRouterChatCompletionDto,
   OpenRouterChatCompletionDto,
