@@ -4,6 +4,7 @@ import { prisma } from '@lib/prisma';
 import { AppError } from '@middlewares/error.middleware';
 import { apiKeyService } from '@services/api-key.service';
 import { openRouterStreamingService } from '@services/openrouter.streaming.service';
+import { generateChatTitle } from '@utils/generate-chat-title';
 import type { CreateChatMessageDto, TokenUsageDto } from '@/types/message.dto';
 import type {
   OpenRouterChatMessageDto,
@@ -168,6 +169,10 @@ export const streamingService = {
       throw new AppError('Chat not found.', 404, 'CHAT_NOT_FOUND');
     }
 
+    // Generate title if chat still has default "New Chat" title
+    const generatedTitle =
+      chat.title === 'New Chat' ? generateChatTitle(input.dto.content) : undefined;
+
     await prisma.$transaction([
       prisma.message.create({
         data: {
@@ -181,6 +186,7 @@ export const streamingService = {
         data: {
           model: input.dto.model,
           provider: openRouterProvider,
+          ...(generatedTitle ? { title: generatedTitle } : {}),
         },
       }),
     ]);
