@@ -17,6 +17,7 @@ type OpenRouterStreamingCompletionDto = {
   model: string;
   usage?: OpenRouterChatUsageDto;
   latencyMs: number;
+  cancelled: boolean;
 };
 
 type OpenRouterErrorBody = {
@@ -230,9 +231,16 @@ const processSseFrame = async (
     model: string;
     usage?: OpenRouterChatUsageDto;
     isDone: boolean;
+    cancelled: boolean;
   },
   handlers: OpenRouterStreamingHandlers,
+  signal?: AbortSignal,
 ): Promise<void> => {
+  if (signal?.aborted) {
+    state.cancelled = true;
+    return;
+  }
+
   const dataLines = frame
     .split(/\r?\n/)
     .filter((line) => line.startsWith('data:'))
@@ -269,6 +277,11 @@ const processSseFrame = async (
   const tokenContents = getTokenContent(chunk);
 
   for (const tokenContent of tokenContents) {
+    if (signal?.aborted || state.cancelled) {
+      state.cancelled = true;
+      break;
+    }
+
     state.contentParts.push(tokenContent);
     await handlers.onToken(tokenContent);
   }
@@ -281,15 +294,42 @@ const streamSseFrames = async (
     model: string;
     usage?: OpenRouterChatUsageDto;
     isDone: boolean;
+    cancelled: boolean;
   },
   handlers: OpenRouterStreamingHandlers,
+  signal?: AbortSignal,
 ): Promise<void> => {
   const reader = body.getReader();
   let buffer = '';
+  const abortReader = (): void => {
+    state.cancelled = true;
+    void reader.cancel().catch(() => undefined);
+  };
 
   try {
-    while (!state.isDone) {
-      const { value, done } = await reader.read();
+    if (signal?.aborted) {
+      state.cancelled = true;
+      return;
+    }
+
+    signal?.addEventListener('abort', abortReader, { once: true });
+
+    while (!state.isDone && !state.cancelled) {
+      let value: Uint8Array | undefined;
+      let done = false;
+
+      try {
+        const result = await reader.read();
+        value = result.value;
+        done = result.done;
+      } catch (error) {
+        if (signal?.aborted) {
+          state.cancelled = true;
+          break;
+        }
+
+        throw error;
+      }
 
       if (done) {
         break;
@@ -299,23 +339,29 @@ const streamSseFrames = async (
 
       let boundaryIndex = buffer.search(/\r?\n\r?\n/);
 
-      while (boundaryIndex >= 0) {
+      while (boundaryIndex >= 0 && !state.cancelled) {
         const frame = buffer.slice(0, boundaryIndex);
         const boundaryMatch = buffer.slice(boundaryIndex).match(/^\r?\n\r?\n/);
         const boundaryLength = boundaryMatch?.[0].length ?? 2;
         buffer = buffer.slice(boundaryIndex + boundaryLength);
 
-        await processSseFrame(frame, state, handlers);
+        await processSseFrame(frame, state, handlers, signal);
         boundaryIndex = buffer.search(/\r?\n\r?\n/);
       }
     }
 
     buffer += textDecoder.decode();
 
-    if (buffer.trim().length > 0 && !state.isDone) {
-      await processSseFrame(buffer, state, handlers);
+    if (buffer.trim().length > 0 && !state.isDone && !state.cancelled) {
+      await processSseFrame(buffer, state, handlers, signal);
     }
   } finally {
+    signal?.removeEventListener('abort', abortReader);
+
+    if (state.cancelled) {
+      await reader.cancel().catch(() => undefined);
+    }
+
     reader.releaseLock();
   }
 };
@@ -330,6 +376,15 @@ export const openRouterStreamingService = {
     let response: Response;
 
     try {
+      if (signal?.aborted) {
+        return {
+          content: '',
+          model: dto.model,
+          latencyMs: Date.now() - startedAt,
+          cancelled: true,
+        };
+      }
+
       response = await fetch(openRouterChatCompletionsUrl, {
         method: 'POST',
         headers: {
@@ -345,9 +400,14 @@ export const openRouterStreamingService = {
         }),
         signal: signal ?? null,
       });
-    } catch (error) {
+    } catch {
       if (signal?.aborted) {
-        throw error;
+        return {
+          content: '',
+          model: dto.model,
+          latencyMs: Date.now() - startedAt,
+          cancelled: true,
+        };
       }
 
       throw new AppError(
@@ -358,7 +418,29 @@ export const openRouterStreamingService = {
     }
 
     if (!response.ok) {
+      if (signal?.aborted) {
+        await response.body?.cancel().catch(() => undefined);
+
+        return {
+          content: '',
+          model: dto.model,
+          latencyMs: Date.now() - startedAt,
+          cancelled: true,
+        };
+      }
+
       await throwOpenRouterHttpError(response);
+    }
+
+    if (signal?.aborted) {
+      await response.body?.cancel().catch(() => undefined);
+
+      return {
+        content: '',
+        model: dto.model,
+        latencyMs: Date.now() - startedAt,
+        cancelled: true,
+      };
     }
 
     if (!response.body) {
@@ -374,18 +456,21 @@ export const openRouterStreamingService = {
       model: string;
       usage?: OpenRouterChatUsageDto;
       isDone: boolean;
+      cancelled: boolean;
     } = {
       contentParts: [],
       model: dto.model,
       isDone: false,
+      cancelled: false,
     };
 
-    await streamSseFrames(response.body, state, handlers);
+    await streamSseFrames(response.body, state, handlers, signal);
 
     return {
       content: state.contentParts.join(''),
       model: state.model,
       latencyMs: Date.now() - startedAt,
+      cancelled: state.cancelled || Boolean(signal?.aborted),
       ...(state.usage ? { usage: state.usage } : {}),
     };
   },
