@@ -396,6 +396,8 @@ export const openRouterStreamingService = {
           model: dto.model,
           messages: dto.messages,
           stream: true,
+          ...(dto.reasoning ? { reasoning: dto.reasoning } : {}),
+          ...(dto.plugins ? { plugins: dto.plugins } : {}),
           user: dto.userId,
         }),
         signal: signal ?? null,

@@ -85,6 +85,7 @@ model Message {
   chatId           String      @map("chat_id") @db.Uuid
   role             MessageRole
   content          String      @db.Text
+  metadata         Json?       @db.JsonB
   promptTokens     Int?        @map("prompt_tokens")
   completionTokens Int?        @map("completion_tokens")
   totalTokens      Int?        @map("total_tokens")

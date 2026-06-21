@@ -210,6 +210,8 @@ export const openRouterChatService = {
           model: dto.model,
           messages: dto.messages,
           stream: false,
+          ...(dto.reasoning ? { reasoning: dto.reasoning } : {}),
+          ...(dto.plugins ? { plugins: dto.plugins } : {}),
           user: dto.userId,
         },
         {

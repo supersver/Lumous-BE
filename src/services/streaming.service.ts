@@ -3,21 +3,34 @@ import { MessageRole, Prisma, UsageStatus, type Message } from '@prisma/client';
 import { prisma } from '@lib/prisma';
 import { AppError } from '@middlewares/error.middleware';
 import { apiKeyService } from '@services/api-key.service';
+import { openRouterService } from '@services/openrouter.service';
 import { openRouterStreamingService } from '@services/openrouter.streaming.service';
 import {
   isStreamCancelledError,
   type StreamCancellation,
 } from '@services/stream-cancellation.service';
 import { generateChatTitle } from '@utils/generate-chat-title';
-import type { CreateChatMessageDto, TokenUsageDto } from '@/types/message.dto';
+import type { CreateChatMessageDto, MessageMetadataDto, TokenUsageDto } from '@/types/message.dto';
 import type {
   OpenRouterChatMessageDto,
   OpenRouterChatRole,
   OpenRouterChatUsageDto,
+  OpenRouterReasoningConfigDto,
 } from '@/types/openrouter-chat.dto';
 import type { StreamChatMessageCallbacks } from '@/types/streaming.dto';
 
 const openRouterProvider = 'openrouter';
+
+const reasoningModelHints = [
+  'thinking',
+  'reasoning',
+  '/o1',
+  '/o3',
+  '/o4',
+  'deepseek-r1',
+  'grok-3',
+  'grok-4',
+];
 
 type StreamChatMessageInput = {
   userId: string;
@@ -33,10 +46,21 @@ type CompletionPersistenceInput = {
   messageId: string;
   model: string;
   content: string;
+  metadata: MessageMetadataDto;
   usage?: TokenUsageDto;
   latencyMs: number;
   status: UsageStatus;
 };
+
+const createMessageMetadata = (dto: CreateChatMessageDto): MessageMetadataDto => ({
+  reasoning: dto.reasoning,
+  webSearch: dto.webSearch,
+});
+
+const toPrismaMetadata = (metadata: MessageMetadataDto): Prisma.InputJsonObject => ({
+  reasoning: metadata.reasoning,
+  webSearch: metadata.webSearch,
+});
 
 const toOpenRouterRole = (role: MessageRole): OpenRouterChatRole => {
   if (role === MessageRole.system) {
@@ -86,6 +110,58 @@ const getUsageNumbers = (
   estimatedCost: new Prisma.Decimal(usage?.estimatedCost ?? 0),
 });
 
+const modelLooksReasoningCapable = (model: string): boolean => {
+  const normalizedModel = model.toLowerCase();
+  return reasoningModelHints.some((hint) => normalizedModel.includes(hint));
+};
+
+const resolveCompletionModel = async (
+  userId: string,
+  requestedModel: string,
+  reasoning: boolean,
+): Promise<string> => {
+  if (!reasoning) {
+    return requestedModel;
+  }
+
+  const modelsResponse = await openRouterService.listModelsForUser(userId);
+  const requestedModelInfo = modelsResponse.models.find((model) => model.id === requestedModel);
+
+  if (
+    requestedModelInfo?.supportsReasoning ||
+    (!requestedModelInfo && modelLooksReasoningCapable(requestedModel))
+  ) {
+    return requestedModel;
+  }
+
+  const reasoningModels = modelsResponse.models.filter((model) => model.supportsReasoning);
+
+  if (reasoningModels.length === 0) {
+    throw new AppError(
+      'No reasoning-capable OpenRouter model is available for this account.',
+      400,
+      'OPENROUTER_REASONING_MODEL_UNAVAILABLE',
+    );
+  }
+
+  const requestedProviderSlug = requestedModel.split('/')[0];
+  const sameProviderModel = reasoningModels.find(
+    (model) => model.providerSlug === requestedProviderSlug,
+  );
+
+  return (
+    sameProviderModel?.id ??
+    reasoningModels.find((model) => model.featured)?.id ??
+    reasoningModels[0]!.id
+  );
+};
+
+const getReasoningConfig = (): OpenRouterReasoningConfigDto => ({
+  enabled: true,
+  effort: 'medium',
+  exclude: true,
+});
+
 const persistCompletion = async (input: CompletionPersistenceInput): Promise<void> => {
   const usageNumbers = getUsageNumbers(input.usage);
 
@@ -96,6 +172,7 @@ const persistCompletion = async (input: CompletionPersistenceInput): Promise<voi
         chatId: input.chatId,
         role: MessageRole.assistant,
         content: input.content,
+        metadata: toPrismaMetadata(input.metadata),
         promptTokens: input.usage?.promptTokens ?? null,
         completionTokens: input.usage?.completionTokens ?? null,
         totalTokens: input.usage?.totalTokens ?? null,
@@ -199,6 +276,9 @@ export const streamingService = {
       throw new AppError('Chat not found.', 404, 'CHAT_NOT_FOUND');
     }
 
+    const metadata = createMessageMetadata(input.dto);
+    const requestedModel = input.dto.model ?? chat.model;
+
     // Generate title if chat still has default "New Chat" title
     const generatedTitle =
       chat.title === 'New Chat' ? generateChatTitle(input.dto.content) : undefined;
@@ -209,12 +289,13 @@ export const streamingService = {
           chatId: input.chatId,
           role: MessageRole.user,
           content: input.dto.content,
+          metadata: toPrismaMetadata(metadata),
         },
       }),
       prisma.chat.update({
         where: { id: input.chatId },
         data: {
-          model: input.dto.model,
+          model: requestedModel,
           provider: openRouterProvider,
           ...(generatedTitle ? { title: generatedTitle } : {}),
         },
@@ -229,8 +310,9 @@ export const streamingService = {
     const openRouterMessages = history.map(toOpenRouterMessage);
     const assistantMessageId = randomUUID();
     const startedAt = Date.now();
+    let completionModel = requestedModel;
     let streamedContent = '';
-    let streamedModel = input.dto.model;
+    let streamedModel = requestedModel;
     let streamedUsage: TokenUsageDto | undefined;
     let completionPersisted = false;
 
@@ -242,6 +324,7 @@ export const streamingService = {
           messageId: assistantMessageId,
           model: streamedModel,
           content: streamedContent,
+          metadata,
           latencyMs,
           status: UsageStatus.cancelled,
           ...(streamedUsage ? { usage: streamedUsage } : {}),
@@ -262,6 +345,13 @@ export const streamingService = {
     };
 
     try {
+      completionModel = await resolveCompletionModel(
+        input.userId,
+        requestedModel,
+        metadata.reasoning,
+      );
+      streamedModel = completionModel;
+
       if (input.cancellation.isCancelled()) {
         await persistCancelledCompletion(Date.now() - startedAt);
         return;
@@ -276,8 +366,10 @@ export const streamingService = {
       const completion = await openRouterStreamingService.createStreamingChatCompletion(
         {
           apiKey,
-          model: input.dto.model,
+          model: completionModel,
           messages: openRouterMessages,
+          ...(metadata.reasoning ? { reasoning: getReasoningConfig() } : {}),
+          ...(metadata.webSearch ? { plugins: [{ id: 'web' as const }] } : {}),
           userId: input.userId,
         },
         {
@@ -313,6 +405,7 @@ export const streamingService = {
         messageId: assistantMessageId,
         model: completion.model,
         content: completion.content,
+        metadata,
         latencyMs: completion.latencyMs,
         status,
         ...(usage ? { usage } : {}),
@@ -342,11 +435,12 @@ export const streamingService = {
           messageId: assistantMessageId,
           model: streamedModel,
           content: streamedContent,
+          metadata,
           latencyMs,
           status: UsageStatus.partial,
         });
       } else {
-        await safePersistFailure(input.userId, input.chatId, streamedModel, latencyMs);
+        await safePersistFailure(input.userId, input.chatId, completionModel, latencyMs);
       }
 
       throw error;

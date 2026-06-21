@@ -1,6 +1,7 @@
 import type { MessageRole } from '@prisma/client';
 import { AppError } from '@middlewares/error.middleware';
 import { z, type ZodError } from 'zod';
+import type { MessageMetadataDto } from './message.dto';
 
 const maxModelIdLength = 256;
 
@@ -67,6 +68,7 @@ export type ChatDetailMessageDto = {
   promptTokens: number | null;
   completionTokens: number | null;
   totalTokens: number | null;
+  metadata: MessageMetadataDto | null;
   createdAt: Date;
 };
 
@@ -80,5 +82,4 @@ export const parseCreateChatDto = (body: unknown): CreateChatDto =>
 export const parseListChatsQueryDto = (query: unknown): ListChatsQueryDto =>
   parseSchema(listChatsQuerySchema, query);
 
-export const parseChatIdParam = (chatId: unknown): string =>
-  parseSchema(chatIdParamSchema, chatId);
+export const parseChatIdParam = (chatId: unknown): string => parseSchema(chatIdParamSchema, chatId);

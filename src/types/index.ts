@@ -16,9 +16,11 @@ export type {
   ListChatsQueryDto,
 } from './chats.dto';
 export type {
+  ChatCompletionMetadataDto,
   ChatCompletionResponseDto,
   ChatMessageDto,
   CreateChatMessageDto,
+  MessageMetadataDto,
   TokenUsageDto,
 } from './message.dto';
 export type { ModelDto } from './model.dto';
@@ -26,6 +28,9 @@ export type {
   CreateOpenRouterChatCompletionDto,
   OpenRouterChatCompletionDto,
   OpenRouterChatMessageDto,
+  OpenRouterPluginDto,
+  OpenRouterReasoningConfigDto,
+  OpenRouterReasoningEffort,
   OpenRouterChatRole,
   OpenRouterChatUsageDto,
 } from './openrouter-chat.dto';
