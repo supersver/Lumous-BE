@@ -4,6 +4,10 @@ import { prisma } from '@lib/prisma';
 import { AppError } from '@middlewares/error.middleware';
 import { apiKeyService } from '@services/api-key.service';
 import { openRouterStreamingService } from '@services/openrouter.streaming.service';
+import {
+  isStreamCancelledError,
+  type StreamCancellation,
+} from '@services/stream-cancellation.service';
 import { generateChatTitle } from '@utils/generate-chat-title';
 import type { CreateChatMessageDto, TokenUsageDto } from '@/types/message.dto';
 import type {
@@ -19,7 +23,7 @@ type StreamChatMessageInput = {
   userId: string;
   chatId: string;
   dto: CreateChatMessageDto;
-  signal: AbortSignal;
+  cancellation: StreamCancellation;
   callbacks: StreamChatMessageCallbacks;
 };
 
@@ -143,6 +147,32 @@ const persistFailedUsageLog = async (
   });
 };
 
+const persistUsageLog = async (
+  userId: string,
+  chatId: string,
+  model: string,
+  latencyMs: number,
+  status: UsageStatus,
+  usage?: TokenUsageDto,
+): Promise<void> => {
+  const usageNumbers = getUsageNumbers(usage);
+
+  await prisma.usageLog.create({
+    data: {
+      userId,
+      chatId,
+      provider: openRouterProvider,
+      model,
+      promptTokens: usageNumbers.promptTokens,
+      completionTokens: usageNumbers.completionTokens,
+      totalTokens: usageNumbers.totalTokens,
+      estimatedCost: usageNumbers.estimatedCost,
+      latencyMs,
+      status,
+    },
+  });
+};
+
 const safePersistFailure = async (
   userId: string,
   chatId: string,
@@ -201,10 +231,45 @@ export const streamingService = {
     const startedAt = Date.now();
     let streamedContent = '';
     let streamedModel = input.dto.model;
+    let streamedUsage: TokenUsageDto | undefined;
     let completionPersisted = false;
 
+    const persistCancelledCompletion = async (latencyMs: number): Promise<void> => {
+      if (streamedContent.length > 0) {
+        await persistCompletion({
+          userId: input.userId,
+          chatId: input.chatId,
+          messageId: assistantMessageId,
+          model: streamedModel,
+          content: streamedContent,
+          latencyMs,
+          status: UsageStatus.cancelled,
+          ...(streamedUsage ? { usage: streamedUsage } : {}),
+        });
+        completionPersisted = true;
+        return;
+      }
+
+      await persistUsageLog(
+        input.userId,
+        input.chatId,
+        streamedModel,
+        latencyMs,
+        UsageStatus.cancelled,
+        streamedUsage,
+      );
+      completionPersisted = true;
+    };
+
     try {
+      if (input.cancellation.isCancelled()) {
+        await persistCancelledCompletion(Date.now() - startedAt);
+        return;
+      }
+
       const apiKey = await apiKeyService.getActiveOpenRouterApiKeyForUser(input.userId);
+
+      input.cancellation.throwIfCancelled();
 
       await input.callbacks.onStart({ messageId: assistantMessageId });
 
@@ -217,6 +282,10 @@ export const streamingService = {
         },
         {
           onToken: async (content) => {
+            if (input.cancellation.isCancelled()) {
+              return;
+            }
+
             streamedContent += content;
             await input.callbacks.onToken({ content });
           },
@@ -224,9 +293,18 @@ export const streamingService = {
             streamedModel = model;
           },
         },
-        input.signal,
+        input.cancellation.signal,
       );
       const usage = toTokenUsage(completion.usage, completion.latencyMs);
+      streamedUsage = usage;
+
+      if (completion.cancelled || input.cancellation.isCancelled()) {
+        streamedModel = completion.model;
+        streamedContent = completion.content;
+        await persistCancelledCompletion(completion.latencyMs);
+        return;
+      }
+
       const status = usage ? UsageStatus.success : UsageStatus.partial;
 
       await persistCompletion({
@@ -250,6 +328,11 @@ export const streamingService = {
 
       if (completionPersisted) {
         throw error;
+      }
+
+      if (input.cancellation.isCancelled() || isStreamCancelledError(error)) {
+        await persistCancelledCompletion(latencyMs);
+        return;
       }
 
       if (streamedContent.length > 0) {

@@ -22,6 +22,7 @@ enum UsageStatus {
   success
   failed
   partial
+  cancelled
 }
 
 // ---------------------------------------------------------------------------

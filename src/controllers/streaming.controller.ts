@@ -1,5 +1,6 @@
 import { closeSseResponse, initializeSseResponse, sendSseEvent } from '@lib/sse';
 import { AppError } from '@middlewares/error.middleware';
+import { streamCancellationService } from '@services/stream-cancellation.service';
 import { asyncHandler } from '@middlewares/async-handler.middleware';
 import { streamingService } from '@services/streaming.service';
 import { parseChatIdParam, parseCreateChatMessageDto } from '@/types/message.dto';
@@ -31,23 +32,16 @@ export const streamingController = {
     const userId = getAuthenticatedUserId(req);
     const chatId = parseChatIdParam(req.params.chatId);
     const dto = parseCreateChatMessageDto(req.body);
-    const abortController = new AbortController();
-    let streamFinished = false;
+    const cancellation = streamCancellationService.createForHttpStream(req, res);
 
     initializeSseResponse(res);
-
-    res.on('close', () => {
-      if (!streamFinished) {
-        abortController.abort();
-      }
-    });
 
     try {
       await streamingService.streamChatCompletion({
         userId,
         chatId,
         dto,
-        signal: abortController.signal,
+        cancellation,
         callbacks: {
           onStart: (event) => sendSseEvent<StreamChatSseEvents, 'start'>(res, 'start', event),
           onToken: (event) => sendSseEvent<StreamChatSseEvents, 'token'>(res, 'token', event),
@@ -56,12 +50,14 @@ export const streamingController = {
         },
       });
 
-      streamFinished = true;
+      cancellation.complete();
+      cancellation.cleanup();
       closeSseResponse(res);
     } catch (error) {
-      streamFinished = true;
+      cancellation.complete();
+      cancellation.cleanup();
 
-      if (!abortController.signal.aborted) {
+      if (!cancellation.isCancelled()) {
         await sendSseEvent<StreamChatSseEvents, 'error'>(res, 'error', {
           message: getStreamErrorMessage(error),
         });
