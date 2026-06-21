@@ -51,7 +51,13 @@ const detectVision = (item: Record<string, unknown>): boolean => {
 };
 
 const detectReasoning = (item: Record<string, unknown>): boolean => {
-  if (hasParam(item, 'reasoning')) return true;
+  if (
+    hasParam(item, 'reasoning') ||
+    hasParam(item, 'reasoning_effort') ||
+    isRecord(item.reasoning)
+  ) {
+    return true;
+  }
   const id = str(item.id)?.toLowerCase() ?? '';
   const name = str(item.name)?.toLowerCase() ?? '';
   return (

@@ -1,4 +1,4 @@
-import type { Chat, Message } from '@prisma/client';
+import { Prisma, type Chat, type Message } from '@prisma/client';
 import { prisma } from '@lib/prisma';
 import { AppError } from '@middlewares/error.middleware';
 import type {
@@ -9,12 +9,27 @@ import type {
   CreateChatDto,
   ListChatsQueryDto,
 } from '@/types/chats.dto';
+import type { MessageMetadataDto } from '@/types/message.dto';
 
 const defaultChatTitle = 'New Chat';
 const openRouterProvider = 'openrouter';
 
 type ChatWithMessages = Chat & {
   messages: Message[];
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const parseMessageMetadata = (metadata: Prisma.JsonValue | null): MessageMetadataDto | null => {
+  if (!isRecord(metadata)) {
+    return null;
+  }
+
+  return {
+    reasoning: metadata.reasoning === true,
+    webSearch: metadata.webSearch === true,
+  };
 };
 
 const toChatResponseDto = (chat: Chat): ChatResponseDto => ({
@@ -40,6 +55,7 @@ const toChatDetailMessageDto = (message: Message): ChatDetailMessageDto => ({
   promptTokens: message.promptTokens,
   completionTokens: message.completionTokens,
   totalTokens: message.totalTokens,
+  metadata: parseMessageMetadata(message.metadata),
   createdAt: message.createdAt,
 });
 

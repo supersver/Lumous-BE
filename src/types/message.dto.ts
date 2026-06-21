@@ -5,9 +5,20 @@ const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[
 const maxMessageContentLength = 50_000;
 const maxModelIdLength = 256;
 
+export type MessageMetadataDto = {
+  reasoning: boolean;
+  webSearch: boolean;
+};
+
 export type CreateChatMessageDto = {
   content: string;
-  model: string;
+  model?: string;
+  reasoning: boolean;
+  webSearch: boolean;
+};
+
+export type ChatCompletionMetadataDto = {
+  reasoning: boolean;
 };
 
 export type TokenUsageDto = {
@@ -26,11 +37,13 @@ export type ChatMessageDto = {
   promptTokens: number | null;
   completionTokens: number | null;
   totalTokens: number | null;
+  metadata: MessageMetadataDto | null;
   createdAt: Date;
 };
 
 export type ChatCompletionResponseDto = {
-  message: ChatMessageDto;
+  assistantMessage: ChatMessageDto;
+  metadata: ChatCompletionMetadataDto;
   usage?: TokenUsageDto;
 };
 
@@ -75,14 +88,40 @@ const validateModel = (model: unknown): string => {
   return trimmedModel;
 };
 
+const validateOptionalModel = (model: unknown): string | undefined => {
+  if (model === undefined) {
+    return undefined;
+  }
+
+  return validateModel(model);
+};
+
+const validateBooleanFlag = (value: unknown, field: string): boolean => {
+  if (value === undefined) {
+    return false;
+  }
+
+  if (typeof value !== 'boolean') {
+    throw new AppError(`${field} must be a boolean.`, 400, 'VALIDATION_ERROR', {
+      field,
+    });
+  }
+
+  return value;
+};
+
 export const parseCreateChatMessageDto = (body: unknown): CreateChatMessageDto => {
   if (!isRecord(body)) {
     throw new AppError('Request body must be a JSON object.', 400, 'VALIDATION_ERROR');
   }
 
+  const model = validateOptionalModel(body.model);
+
   return {
     content: validateContent(body.content),
-    model: validateModel(body.model),
+    ...(model ? { model } : {}),
+    reasoning: validateBooleanFlag(body.reasoning, 'reasoning'),
+    webSearch: validateBooleanFlag(body.webSearch, 'webSearch'),
   };
 };
 

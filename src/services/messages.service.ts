@@ -3,25 +3,63 @@ import { prisma } from '@lib/prisma';
 import { AppError } from '@middlewares/error.middleware';
 import { apiKeyService } from '@services/api-key.service';
 import { openRouterChatService } from '@services/openrouter.chat.service';
+import { openRouterService } from '@services/openrouter.service';
 import { generateChatTitle } from '@utils/generate-chat-title';
 import type {
   ChatCompletionResponseDto,
   ChatMessageDto,
   CreateChatMessageDto,
+  MessageMetadataDto,
   TokenUsageDto,
 } from '@/types/message.dto';
 import type {
   OpenRouterChatCompletionDto,
   OpenRouterChatMessageDto,
   OpenRouterChatRole,
+  OpenRouterReasoningConfigDto,
 } from '@/types/openrouter-chat.dto';
 
 const openRouterProvider = 'openrouter';
+
+const reasoningModelHints = [
+  'thinking',
+  'reasoning',
+  '/o1',
+  '/o3',
+  '/o4',
+  'deepseek-r1',
+  'grok-3',
+  'grok-4',
+];
 
 type CreateMessageForChatInput = {
   userId: string;
   chatId: string;
   dto: CreateChatMessageDto;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const createMessageMetadata = (dto: CreateChatMessageDto): MessageMetadataDto => ({
+  reasoning: dto.reasoning,
+  webSearch: dto.webSearch,
+});
+
+const toPrismaMetadata = (metadata: MessageMetadataDto): Prisma.InputJsonObject => ({
+  reasoning: metadata.reasoning,
+  webSearch: metadata.webSearch,
+});
+
+const parseMessageMetadata = (metadata: Prisma.JsonValue | null): MessageMetadataDto | null => {
+  if (!isRecord(metadata)) {
+    return null;
+  }
+
+  return {
+    reasoning: metadata.reasoning === true,
+    webSearch: metadata.webSearch === true,
+  };
 };
 
 const toChatMessageDto = (message: Message): ChatMessageDto => ({
@@ -32,6 +70,7 @@ const toChatMessageDto = (message: Message): ChatMessageDto => ({
   promptTokens: message.promptTokens,
   completionTokens: message.completionTokens,
   totalTokens: message.totalTokens,
+  metadata: parseMessageMetadata(message.metadata),
   createdAt: message.createdAt,
 });
 
@@ -80,6 +119,58 @@ const getUsageNumbers = (
   estimatedCost: new Prisma.Decimal(usage?.estimatedCost ?? 0),
 });
 
+const modelLooksReasoningCapable = (model: string): boolean => {
+  const normalizedModel = model.toLowerCase();
+  return reasoningModelHints.some((hint) => normalizedModel.includes(hint));
+};
+
+const resolveCompletionModel = async (
+  userId: string,
+  requestedModel: string,
+  reasoning: boolean,
+): Promise<string> => {
+  if (!reasoning) {
+    return requestedModel;
+  }
+
+  const modelsResponse = await openRouterService.listModelsForUser(userId);
+  const requestedModelInfo = modelsResponse.models.find((model) => model.id === requestedModel);
+
+  if (
+    requestedModelInfo?.supportsReasoning ||
+    (!requestedModelInfo && modelLooksReasoningCapable(requestedModel))
+  ) {
+    return requestedModel;
+  }
+
+  const reasoningModels = modelsResponse.models.filter((model) => model.supportsReasoning);
+
+  if (reasoningModels.length === 0) {
+    throw new AppError(
+      'No reasoning-capable OpenRouter model is available for this account.',
+      400,
+      'OPENROUTER_REASONING_MODEL_UNAVAILABLE',
+    );
+  }
+
+  const requestedProviderSlug = requestedModel.split('/')[0];
+  const sameProviderModel = reasoningModels.find(
+    (model) => model.providerSlug === requestedProviderSlug,
+  );
+
+  return (
+    sameProviderModel?.id ??
+    reasoningModels.find((model) => model.featured)?.id ??
+    reasoningModels[0]!.id
+  );
+};
+
+const getReasoningConfig = (): OpenRouterReasoningConfigDto => ({
+  enabled: true,
+  effort: 'medium',
+  exclude: true,
+});
+
 const writeFailedUsageLog = async (
   userId: string,
   chatId: string,
@@ -119,6 +210,9 @@ export const messagesService = {
       throw new AppError('Chat not found.', 404, 'CHAT_NOT_FOUND');
     }
 
+    const metadata = createMessageMetadata(input.dto);
+    const requestedModel = input.dto.model ?? chat.model;
+
     // Generate title if chat still has default "New Chat" title
     const generatedTitle =
       chat.title === 'New Chat' ? generateChatTitle(input.dto.content) : undefined;
@@ -129,12 +223,13 @@ export const messagesService = {
           chatId: input.chatId,
           role: MessageRole.user,
           content: input.dto.content,
+          metadata: toPrismaMetadata(metadata),
         },
       }),
       prisma.chat.update({
         where: { id: input.chatId },
         data: {
-          model: input.dto.model,
+          model: requestedModel,
           provider: openRouterProvider,
           ...(generatedTitle ? { title: generatedTitle } : {}),
         },
@@ -148,13 +243,21 @@ export const messagesService = {
 
     const openRouterMessages = history.map(toOpenRouterMessage);
     const startedAt = Date.now();
+    let completionModel = requestedModel;
 
     try {
+      completionModel = await resolveCompletionModel(
+        input.userId,
+        requestedModel,
+        metadata.reasoning,
+      );
       const apiKey = await apiKeyService.getActiveOpenRouterApiKeyForUser(input.userId);
       const completion = await openRouterChatService.createChatCompletion({
         apiKey,
-        model: input.dto.model,
+        model: completionModel,
         messages: openRouterMessages,
+        ...(metadata.reasoning ? { reasoning: getReasoningConfig() } : {}),
+        ...(metadata.webSearch ? { plugins: [{ id: 'web' as const }] } : {}),
         userId: input.userId,
       });
       const usage = getCompletionUsage(completion);
@@ -167,6 +270,7 @@ export const messagesService = {
             chatId: input.chatId,
             role: MessageRole.assistant,
             content: completion.content,
+            metadata: toPrismaMetadata(metadata),
             promptTokens: usage?.promptTokens ?? null,
             completionTokens: usage?.completionTokens ?? null,
             totalTokens: usage?.totalTokens ?? null,
@@ -196,14 +300,15 @@ export const messagesService = {
       ]);
 
       return {
-        message: toChatMessageDto(assistantMessage),
+        assistantMessage: toChatMessageDto(assistantMessage),
+        metadata: { reasoning: metadata.reasoning },
         ...(usage ? { usage } : {}),
       };
     } catch (error) {
       await writeFailedUsageLog(
         input.userId,
         input.chatId,
-        input.dto.model,
+        completionModel,
         Date.now() - startedAt,
       );
       throw error;
